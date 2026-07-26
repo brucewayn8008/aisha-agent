@@ -59,7 +59,9 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
         db.refresh(user)
 
     # Find or create contact by JID
-    lead_jid = sender_jid if not is_group else chat_jid
+    # ALWAYS use chat_jid for the contact's JID because sender_jid contains specific device IDs (e.g. :7@lid) 
+    # which we cannot route outgoing messages to.
+    lead_jid = chat_jid
     contact = (
         db.query(Contact)
         .filter(Contact.user_id == user.id, Contact.jid == lead_jid)
