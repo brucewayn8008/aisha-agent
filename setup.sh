@@ -105,10 +105,22 @@ grn "  ✔ Database tables ready"
 # 4) Python venv + deps
 grn "▶ Setting up Python backend..."
 cd "$ROOT/backend"
+
+# Find the best Python: prefer 3.11-3.13, fallback to python3
+PYTHON_BIN=""
+for candidate in python3.11 python3.12 python3.13 python3; do
+  if command -v "$candidate" &>/dev/null; then
+    PYTHON_BIN="$candidate"
+    break
+  fi
+done
+grn "  Using $PYTHON_BIN ($($PYTHON_BIN --version 2>&1))"
+
 if [ ! -d "venv" ]; then
-  python3 -m venv venv
+  $PYTHON_BIN -m venv venv
 fi
 source venv/bin/activate
+pip install -q --upgrade pip
 pip install -q -r requirements.txt
 deactivate
 grn "  ✔ Python dependencies installed"
