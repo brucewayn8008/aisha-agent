@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.logging_setup import setup_logging
+from app.core.celery_app import celery_app  # Initialize celery app
 
 setup_logging()
 logger = logging.getLogger(__name__)
