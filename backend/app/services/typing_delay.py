@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 # Typical typing speed: ~40-60 WPM = ~0.8-1.2 seconds per word
 # But WhatsApp users type faster on mobile: ~25-40 WPM
-CHARS_PER_SECOND = 5.0  # Conservative typing speed
-MIN_DELAY = 1.5  # Minimum delay in seconds (reading time)
-MAX_DELAY = 8.0  # Maximum delay to avoid seeming unresponsive
+CHARS_PER_SECOND = 100.0  # Extremely fast typing speed
+MIN_DELAY = 0.1  # Minimum delay in seconds (100ms)
+MAX_DELAY = 0.5  # Maximum delay in seconds (500ms)
 
 
 def calculate_typing_delay(message: str) -> float:
@@ -31,7 +31,7 @@ def calculate_typing_delay(message: str) -> float:
     base_delay = char_count / CHARS_PER_SECOND
 
     # Add a small "reading" time for the incoming message
-    reading_time = 1.0
+    reading_time = 0.1
 
     total = reading_time + base_delay
     delay = max(MIN_DELAY, min(total, MAX_DELAY))

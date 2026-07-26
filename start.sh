@@ -73,7 +73,6 @@ sleep 2
 
 # ── Start Go WhatsApp Gateway (:5005) ──
 grn "▶ WhatsApp Gateway (:5005)"
-export WEBHOOK_URL_2="http://127.0.0.1:5001/api/v1/webhook/message"
 export WEBHOOK_URL="http://127.0.0.1:5001/api/v1/webhook/message"
 cd "$ROOT/gateway"
 go run main.go > "$LOG_DIR/gateway.log" 2>&1 &
