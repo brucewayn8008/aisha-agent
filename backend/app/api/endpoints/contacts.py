@@ -238,14 +238,14 @@ def archive_contact(
 def start_chat(
     contact_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: AgentConfig = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     from app.models.database import Conversation, ConversationStatus, AgentActivity
     from app.tasks.romantic_tasks import send_proactive_message
     
     contact = db.query(Contact).filter(
         Contact.id == contact_id,
-        Contact.workspace_id == current_user.workspace_id
+        Contact.user_id == current_user.id
     ).first()
     if not contact:
         raise HTTPException(404, "Contact not found")
