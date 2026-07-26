@@ -65,6 +65,17 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
         .filter(Contact.user_id == user.id, Contact.jid == lead_jid)
         .first()
     )
+    
+    # Fallback for WhatsApp LID vs JID mismatch (prevents duplicate contacts)
+    if not contact and sender_name:
+        contact = (
+            db.query(Contact)
+            .filter(Contact.user_id == user.id, Contact.display_name.ilike(sender_name))
+            .first()
+        )
+        if contact:
+            contact.jid = lead_jid  # Update to latest LID/JID for future messages
+            db.commit()
 
     if contact:
         contact.display_name = sender_name or contact.display_name
