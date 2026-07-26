@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.database import Contact, Conversation, AgentConfig
-from app.models.memory import MemoryFact
 from app.services.memory_service import build_memory_context, get_stage_for_turn_count, update_relationship_stage
 
 logger = logging.getLogger(__name__)
