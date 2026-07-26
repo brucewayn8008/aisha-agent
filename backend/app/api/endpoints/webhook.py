@@ -51,9 +51,9 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "ignored", "reason": "group_message"}
 
     # Find or create user (single-user dev mode)
-    user = db.query(User).first()
+    user = db.query(User).filter(User.email == "aisha@local.dev").first()
     if not user:
-        user = User(email="demo@local.dev")
+        user = User(email="aisha@local.dev")
         db.add(user)
         db.commit()
         db.refresh(user)
