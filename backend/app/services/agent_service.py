@@ -3,13 +3,15 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from pydantic import BaseModel, Field
 
 from google import genai
 from google.genai import types as genai_types
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.database import AgentConfig
+from app.models.database import Contact, Conversation, AgentConfig
+from app.models.memory import MemoryFact
 from app.services.memory_service import build_memory_context, get_stage_for_turn_count, update_relationship_stage
 
 logger = logging.getLogger(__name__)
