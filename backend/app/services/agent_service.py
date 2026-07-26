@@ -342,7 +342,7 @@ def generate_reply_and_extract_memory(
             memory_prompt,
             temperature=0.3,
             max_tokens=256,
-            model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
             raise_on_error=False,
         )
         memory_facts = parse_json_array(raw_facts)
