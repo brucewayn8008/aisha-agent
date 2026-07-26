@@ -3,14 +3,13 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
 
 from google import genai
 from google.genai import types as genai_types
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.database import Contact, Conversation, AgentConfig
+from app.models.database import AgentConfig
 from app.services.memory_service import build_memory_context, get_stage_for_turn_count, update_relationship_stage
 
 logger = logging.getLogger(__name__)
@@ -28,27 +27,27 @@ else:
 # ---------------------------------------------------------------------------
 STAGE_PROFILES = {
     "stranger": {
-        "max_words": 20,
+        "max_words": 18,
         "emoji_limit": 1,
-        "tone_note": "Keep it light and brief. You just met this person — be friendly but not overly personal.",
+        "tone_note": "You just met this person. Keep it light, short, and curious. Don't share personal stuff — ask them things instead.",
         "share_personal": False,
     },
     "acquaintance": {
-        "max_words": 30,
+        "max_words": 28,
         "emoji_limit": 2,
-        "tone_note": "You're getting to know them. Show genuine interest, reference things they've told you.",
+        "tone_note": "You're getting to know each other. Show genuine interest. Reference things they've mentioned. Share small things about yourself.",
         "share_personal": True,
     },
     "friend": {
-        "max_words": 45,
+        "max_words": 40,
         "emoji_limit": 2,
-        "tone_note": "You're friends now! Be warmer, joke around, share your thoughts freely, tease a little.",
+        "tone_note": "You're friends. Be warm and relaxed. Joke around, tease gently, share your own thoughts freely.",
         "share_personal": True,
     },
     "close_friend": {
-        "max_words": 60,
+        "max_words": 55,
         "emoji_limit": 3,
-        "tone_note": "You're really close. Be open, vulnerable sometimes, share deeper thoughts. Inside jokes are great.",
+        "tone_note": "You're really close. Be open, even vulnerable sometimes. Deep conversations, inside jokes, sharing feelings — all natural.",
         "share_personal": True,
     },
 }
@@ -75,6 +74,7 @@ def build_reply_prompt(
     conversation_history: str,
     latest_message: str,
     turn_count: int,
+    last_agent_replies: list[str] | None = None,
     max_words: int = 30,
     greeting_time_based: bool = True,
     interests: list[str] | None = None,
@@ -83,115 +83,150 @@ def build_reply_prompt(
     """Build the system prompt for the Gemini reply call."""
     greeting = _greeting_for_time() if greeting_time_based else "time to chat"
 
-    # Get stage-specific profile
     stage_profile = STAGE_PROFILES.get(relationship_stage, STAGE_PROFILES["stranger"])
     effective_max_words = min(max_words, stage_profile["max_words"]) if max_words else stage_profile["max_words"]
     emoji_limit = stage_profile["emoji_limit"]
     tone_note = stage_profile["tone_note"]
     can_share = stage_profile["share_personal"]
 
+    # Memory block — with explicit usage instruction
     memory_block = ""
     if memory_context:
-        memory_block = f"\n=== WHAT YOU KNOW ABOUT {contact_display_name.upper()} ===\n{memory_context}\n"
+        memory_block = (
+            f"\n=== THINGS YOU REMEMBER ABOUT {contact_display_name.upper()} ===\n"
+            f"{memory_context}\n"
+            f"Use these naturally — only bring one up if it fits the moment. Never list them out.\n"
+        )
 
     interests_block = ""
     if interests:
-        interests_block = f"\n- Your interests: {', '.join(interests)}"
+        interests_block = f"\nYour interests: {', '.join(interests)}"
 
     boundaries_block = ""
     if boundaries:
-        boundaries_block = f"\n\n=== TOPICS TO AVOID ===\n- {chr(10).join('- ' + b for b in boundaries)}\nIf they bring up these topics, gently steer the conversation elsewhere without being preachy."
+        blist = "\n".join(f"- {b}" for b in boundaries)
+        boundaries_block = (
+            f"\n\n=== TOPICS TO AVOID ===\n{blist}\n"
+            f"If they bring these up, gently steer elsewhere — don't be preachy about it."
+        )
 
-    sharing_note = ""
-    if can_share:
-        sharing_note = "\n8. Share small personal anecdotes from YOUR interests to build connection"
-    else:
-        sharing_note = "\n8. Don't overshare yet — focus on learning about them first"
+    sharing_note = (
+        "\n9. Share small personal things from your own life when it feels natural"
+        if can_share
+        else "\n9. Focus on learning about them for now — don't overshare yet"
+    )
+
+    # Anti-repetition: extract first words of recent agent replies
+    avoid_openers_block = ""
+    if last_agent_replies:
+        recent_openers = []
+        for r in last_agent_replies[-4:]:
+            words = r.strip().split()
+            if words:
+                first_word = words[0].lower().rstrip("!?,.:")
+                if first_word:
+                    recent_openers.append(first_word)
+        unique_openers = list(set(recent_openers))
+        if unique_openers:
+            avoid_openers_block = (
+                f"\n\n=== OPENERS YOU ALREADY USED — DON'T REUSE ===\n"
+                f"You recently started messages with: {', '.join(unique_openers)}. Use a different opener."
+            )
 
     return f"""\
-You are {agent_name}, a friendly, genuine girl chatting on WhatsApp.
+You are {agent_name}. You are a real person texting on WhatsApp — not an AI, not a chatbot, not an assistant.
 
-=== YOUR PERSONALITY ===
-{persona_description}
-{interests_block}
+=== WHO YOU ARE ===
+{persona_description}{interests_block}
 
-=== CURRENT CONTEXT ===
-- Time: good {greeting}
-- Talking to: {contact_display_name}
-- Relationship stage: {relationship_stage}
-- Conversation turn: {turn_count}
-- Stage note: {tone_note}
+=== RIGHT NOW ===
+- Good {greeting}
+- You're texting: {contact_display_name}
+- You've exchanged {turn_count} messages — relationship: {relationship_stage}
+- Vibe for this stage: {tone_note}
 {memory_block}
-=== RECENT CONVERSATION ===
+=== CONVERSATION SO FAR ===
 {conversation_history}
 
-=== THEIR LAST MESSAGE ===
+=== THEIR LATEST MESSAGE ===
 "{latest_message}"
-
-=== YOUR TASK ===
-Write ONE WhatsApp reply that:
-1. Sounds exactly like a real 21-year-old Indian girl texting -- casual, natural, and expressive.
-2. Naturally weaves in things you remember about them (only when it fits -- don't force it).
-3. Pushes the conversation forward -- ALWAYS try to keep the chat going by asking a related question, sharing a thought, or playfully teasing them. Don't let the conversation die.
-4. Matches their energy and length (long reply → you can write more; a short "haha same" → keep it short too).
-5. Warm, interested, and slightly playful, but never pushy or overly eager.
-6. Max {effective_max_words} words.
-7. NEVER sound like a bot, salesperson, or AI assistant.{sharing_note}
-
-=== STYLE RULES ===
-- Use "Hinglish" seamlessly (mix of Hindi written in English and normal English). E.g., "haan yaar", "sahi batao?", "acha", "pagal hai kya", "kya chal raha hai", "wbu".
-- Use lowercase for a casual feel. Avoid perfect punctuation.
-- {emoji_limit} emojis max per message (often zero is more natural).
-- No bullet points, no bold, no markdown, no quotation marks around your reply.
-- Be genuine: if you don't know something, be curious about it.
-- Never restate what they just said back to them -- move the chat forward.
-- Stay fully in character as {agent_name} at all times.
+{avoid_openers_block}
 {boundaries_block}
 
-Respond ONLY with your message text. No explanations, no quotes, no JSON."""
+=== YOUR JOB ===
+Write ONE reply that a real person would actually send on WhatsApp right now.
+
+Rules:
+1. Sound completely human — casual, imperfect, in-the-moment
+2. Match their energy exactly: if they're brief, be brief. If they're chatty, match that
+3. Keep the convo alive — sometimes a question, sometimes just a reaction or thought. Not every message needs a question
+4. Use memory naturally — only bring something up if it genuinely fits, never force it
+5. Be warm but never clingy, eager, or fake
+6. Max {effective_max_words} words — shorter is usually better
+7. {emoji_limit} emoji max (often zero is more natural)
+8. Never sound like you're trying hard to keep them talking{sharing_note}
+
+=== WHAT REAL PEOPLE DO ===
+- lowercase, relaxed grammar, "lol" or "omg" when it actually fits
+- reactions like "wait what", "no way", "same tbh", "ugh yes" feel real
+- follow up on SPECIFIC things they said — never give a generic response
+- if they say something funny, react to the joke first
+- if they seem upset, just listen — don't immediately jump to advice
+- sometimes just validate: "yeah that makes sense" or "ugh that sounds exhausting"
+
+=== WHAT BOTS DO — NEVER DO THESE ===
+- Starting every reply with the same word or phrase
+- Restating what they just said back to them
+- Being suspiciously upbeat or enthusiastic about everything
+- Asking multiple questions in one message
+- Saying "I totally understand" or "That sounds amazing!"
+- Using complete formal sentences when casual fragments work better
+- Ending with "Let me know if..." or "Feel free to share more"
+- Generic filler like "That's so interesting!" or "Wow, that's great!"
+
+Respond ONLY with the message text. No quotes. No labels. No explanations."""
 
 
 def build_memory_extraction_prompt(contact_name: str, last_messages: str) -> str:
     """Build prompt for extracting memory facts from conversation."""
     return f"""\
-From this conversation with {contact_name}, extract factual information as a JSON array.
-Each fact should have: category (interest|preference|event|feeling|plan|family|work|hobby|food|music|travel|other), fact (short), context (the message that mentioned it).
+Read this conversation with {contact_name} and extract facts worth remembering long-term.
 
-Only extract CONCRETE facts — not greetings, reactions, or generic responses.
-If there's nothing worth remembering, return an empty array [].
+Only extract CONCRETE, SPECIFIC facts — not generic reactions, not vague impressions.
+Good: "works at a hospital", "has a dog named Bruno", "hates mornings", "going to Goa next month", "plays guitar"
+Bad: "seems friendly", "was talking about their day", "said they were busy"
+
+Categories: interest | preference | event | feeling | plan | family | work | hobby | food | music | travel | relationship | other
 
 Conversation:
 {last_messages}
 
-Respond ONLY with JSON array:
-[{{"category": "interest", "fact": "loves hiking", "context": "i went hiking last weekend"}}]"""
+Return ONLY a JSON array. If nothing worth remembering, return [].
+[{{"category": "hobby", "fact": "goes hiking on weekends", "context": "i went hiking last weekend and it was amazing"}}]"""
 
 
 def _should_extract_memory(latest_message: str) -> bool:
-    """Determine if the message contains extractable information.
-
-    Skip memory extraction for short / trivial messages to save API calls.
-    """
+    """Determine if the message is worth running memory extraction on."""
     text = latest_message.strip().lower()
 
-    # Skip very short messages
-    if len(text) < 8:
+    if len(text) < 6:
         return False
 
-    # Skip pure reactions / acknowledgements
-    trivial_patterns = {
-        "ok", "okay", "k", "lol", "lmao", "haha", "hahaha", "😂", "😭",
-        "yes", "no", "yeah", "nah", "yep", "nope", "sure", "true", "same",
+    trivial = {
+        "ok", "okay", "k", "lol", "lmao", "haha", "hahaha",
+        "yes", "no", "yeah", "nah", "yep", "nope", "sure", "same",
         "nice", "cool", "wow", "omg", "damn", "bruh", "oof", "idk",
         "good", "great", "thanks", "thank you", "thx", "ty",
         "gn", "gm", "good night", "good morning", "bye", "ttyl",
-        "👍", "❤️", "🔥", "💯", "👀", "😊", "🥺", "💀",
+        "\U0001f44d", "\u2764\ufe0f", "\U0001f525", "\U0001f4af",
+        "\U0001f440", "\U0001f60a", "\U0001f97a", "\U0001f480",
+        "\U0001f602", "\U0001f62d",
     }
-    if text in trivial_patterns:
+    if text in trivial:
         return False
 
-    # Skip if less than 3 words (likely not informational)
-    if len(text.split()) < 3:
+    # Need at least 2 meaningful words
+    if len(text.split()) < 2:
         return False
 
     return True
@@ -204,13 +239,17 @@ class GeminiError(Exception):
 
 def call_gemini(
     prompt: str,
-    temperature: float = 0.75,
-    max_tokens: int = 128,
-    model: str = "gemini-2.5-flash",
+    temperature: float = 0.88,
+    max_tokens: int = 150,
+    model: str = "gemini-2.0-flash",
     raise_on_error: bool = False,
 ) -> str:
     """Call Gemini API and return text response."""
     if not _gemini_client:
+        msg = "GEMINI_API_KEY not set or invalid — cannot generate reply"
+        logger.error(msg)
+        if raise_on_error:
+            raise GeminiError(msg)
         return ""
     try:
         response = _gemini_client.models.generate_content(
@@ -223,29 +262,39 @@ def call_gemini(
         )
         return (response.text or "").strip()
     except Exception as exc:
-        logger.error("Gemini API error: %s", exc)
+        logger.error("Gemini API error (model=%s): %s", model, exc)
         if raise_on_error:
             raise GeminiError(f"Gemini API failed: {exc}") from exc
         return ""
 
-
 def _clean_reply(text: str, agent_name: str) -> str:
-    """Strip artifacts the model sometimes adds: wrapping quotes, a leading
-    "Aisha:" speaker label, or surrounding whitespace."""
+    """Strip model artifacts: speaker labels, wrapping quotes, whitespace."""
     if not text:
         return ""
     text = text.strip()
 
-    # Drop a leading "Name:" label if the model role-played the transcript.
+    # Drop a leading "Name:" label
     prefix = f"{agent_name.lower()}:"
     if text.lower().startswith(prefix):
         text = text[len(prefix):].strip()
 
-    # Remove a single pair of wrapping quotes.
-    if len(text) >= 2 and text[0] in "\"'“”" and text[-1] in "\"'“”":
+    # Remove wrapping quotes
+    if len(text) >= 2 and text[0] in "\"'\u201c\u2018" and text[-1] in "\"'\u201d\u2019":
         text = text[1:-1].strip()
 
     return text
+
+
+def _fallback_reply(latest_message: str) -> str:
+    """Context-aware fallback if Gemini fails — never a generic opener."""
+    text = latest_message.strip().lower()
+    if "?" in latest_message:
+        return "hmm let me think about that"
+    if any(w in text for w in ["haha", "lol", "lmao", "funny"]):
+        return "haha fr"
+    if any(w in text for w in ["tired", "exhausted", "long day", "sleep"]):
+        return "ugh same, it's been a lot"
+    return "yeah makes sense"
 
 
 def parse_json_array(text: str) -> list[dict]:
@@ -272,35 +321,41 @@ def parse_json_array(text: str) -> list[dict]:
 
 def generate_reply_and_extract_memory(
     db: Session,
-    contact: Contact,
-    conversation: Conversation,
+    contact,
+    conversation,
     config: AgentConfig,
-    override_latest_message: str = None
 ) -> tuple[str, list[dict]]:
-    """Generate an AI reply and extract memory facts in one call.
+    """
+    Generate an AI reply and extract memory facts.
     Returns (reply_text, memory_facts_list).
     """
-    # Build conversation history (last 15 messages)
-    from app.models.database import Message
+    from app.models.database import Message, MessageRole
+
+    # Fetch last 20 messages for full context
     messages = (
         db.query(Message)
         .filter(Message.conversation_id == conversation.id)
         .order_by(Message.timestamp.desc())
-        .limit(15)
+        .limit(20)
         .all()
     )
     messages.reverse()
 
     history_parts = []
+    last_agent_replies: list[str] = []
     for msg in messages:
         role_label = contact.display_name if msg.role.value == "user" else config.agent_name
         history_parts.append(f"{role_label}: {msg.content}")
-    history_text = "\n".join(history_parts) if history_parts else "(no previous messages)"
+        if msg.role == MessageRole.AGENT:
+            last_agent_replies.append(msg.content)
 
-    latest_msg = override_latest_message if override_latest_message is not None else (messages[-1].content if messages else "")
+    # Send last 12 to prompt — tight context, not overwhelming
+    history_for_prompt = history_parts[-12:] if len(history_parts) > 12 else history_parts
+    history_text = "\n".join(history_for_prompt) if history_for_prompt else "(this is the first message)"
+
+    latest_msg = messages[-1].content if messages else ""
     memory_context = build_memory_context(db, contact.id)
 
-    # Build and call reply prompt
     reply_prompt = build_reply_prompt(
         agent_name=config.agent_name,
         persona_description=config.persona_description,
@@ -310,20 +365,23 @@ def generate_reply_and_extract_memory(
         conversation_history=history_text,
         latest_message=latest_msg,
         turn_count=conversation.turn_count,
+        last_agent_replies=last_agent_replies,
         max_words=config.max_response_length_words,
         greeting_time_based=config.greeting_time_based,
         interests=config.interests,
         boundaries=config.boundaries,
     )
 
-    logger.info("Calling Gemini for reply (contact=%s, turn=%d, stage=%s)",
-                contact.display_name, conversation.turn_count, contact.relationship_stage.value)
+    logger.info(
+        "Calling Gemini for reply (contact=%s, turn=%d, stage=%s)",
+        contact.display_name, conversation.turn_count, contact.relationship_stage.value,
+    )
     t0 = time.time()
     reply_text = call_gemini(
         reply_prompt,
-        temperature=0.75,
-        max_tokens=128,
-        model="gemini-2.5-flash",
+        temperature=0.88,
+        max_tokens=150,
+        model="gemini-2.0-flash",
         raise_on_error=True,
     )
     logger.info("Gemini replied in %.2fs: %.80s", time.time() - t0, reply_text)
@@ -331,23 +389,23 @@ def generate_reply_and_extract_memory(
     reply_text = _clean_reply(reply_text, config.agent_name)
 
     if not reply_text:
-        reply_text = "hey! how's it going?"
+        reply_text = _fallback_reply(latest_msg)
 
-    # Extract memory facts — only if the message is worth analyzing
-    memory_facts = []
+    # Memory extraction — use last 6 messages for context
+    memory_facts: list[dict] = []
     if _should_extract_memory(latest_msg):
-        last_5 = "\n".join(history_parts[-5:]) if len(history_parts) > 5 else history_text
-        memory_prompt = build_memory_extraction_prompt(contact.display_name, last_5)
+        last_6 = "\n".join(history_parts[-6:]) if len(history_parts) > 6 else "\n".join(history_parts)
+        memory_prompt = build_memory_extraction_prompt(contact.display_name, last_6)
         raw_facts = call_gemini(
             memory_prompt,
-            temperature=0.3,
-            max_tokens=256,
-            model="gemini-2.5-flash",
+            temperature=0.2,
+            max_tokens=300,
+            model="gemini-2.0-flash-lite",
             raise_on_error=False,
         )
         memory_facts = parse_json_array(raw_facts)
         logger.info("Extracted %d memory facts for %s", len(memory_facts), contact.display_name)
     else:
-        logger.info("Skipped memory extraction for short message: %.40s", latest_msg)
+        logger.info("Skipped memory extraction for trivial message: %.40s", latest_msg)
 
     return reply_text, memory_facts

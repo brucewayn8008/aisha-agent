@@ -224,11 +224,13 @@ async def stream_system_logs(
     import os
     import asyncio
     
-    log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "backend.log")
+    # The logs are stored in <root>/logs/
+    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    log_file = os.path.join(root_dir, "logs", "worker.log")
     
     async def event_generator():
         if not os.path.exists(log_file):
-            yield f"data: {json.dumps({'log': 'Waiting for backend.log...'})}\n\n"
+            yield f"data: {json.dumps({'log': 'Waiting for worker.log...'})}\n\n"
             while not os.path.exists(log_file):
                 if await request.is_disconnected():
                     return

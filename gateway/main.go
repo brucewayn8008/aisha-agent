@@ -248,7 +248,6 @@ func pushWebhook(workspaceID, msgID, chatJID, senderJID, senderName, text string
 	jsonData, _ := json.Marshal(payload)
 
 	url1 := getEnv("WEBHOOK_URL", "http://localhost:8000/api/v1/webhook/message")
-	url2 := getEnv("WEBHOOK_URL_2", "http://localhost:5001/api/v1/webhook/message")
 
 	deliver := func(url string, label string) {
 		if url == "" {
@@ -264,9 +263,6 @@ func pushWebhook(workspaceID, msgID, chatJID, senderJID, senderName, text string
 	}
 
 	go deliver(url1, "primary")
-	if url2 != "" {
-		go deliver(url2, "secondary")
-	}
 }
 
 // REST Handlers

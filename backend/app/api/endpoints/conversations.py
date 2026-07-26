@@ -164,37 +164,9 @@ def send_proactive(
     if contact.do_not_contact:
         raise HTTPException(400, "Contact is set to do not contact")
 
-    # Save as agent message
-    msg = Message(
-        conversation_id=conv.id,
-        contact_id=contact.id,
-        role=MessageRole.AGENT,
-        content=payload.message,
-        status=MessageStatus.SENT,
-    )
-    db.add(msg)
-    contact.total_messages_sent += 1
-    contact.last_message_at = datetime.now(timezone.utc)
-    contact.last_message_preview = payload.message[:100]
-    conv.last_agent_reply_at = datetime.now(timezone.utc)
-
-    activity = AgentActivity(
-        conversation_id=conv.id,
-        contact_id=contact.id,
-        event_type="proactive_sent",
-        title=f"Proactive to {contact.display_name}",
-        detail=payload.message[:500],
-    )
-    db.add(activity)
-    db.commit()
-
-    # Actually send via WhatsApp
-    jid_to_use = contact.jid or f"{contact.phone_number.strip('+')}@s.whatsapp.net"
-    ok = send_whatsapp_message(conv.workspace_id, jid_to_use, payload.message)
-    if not ok:
-        return {"ok": False, "error": "Failed to send via WhatsApp"}
-
-    return {"ok": True}
+    send_proactive_message.delay(str(contact.id), payload.message)
+    
+    return {"ok": True, "status": "Task dispatched"}
 
 
 @router.post("/{conversation_id}/send")
