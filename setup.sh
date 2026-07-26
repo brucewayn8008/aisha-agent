@@ -63,7 +63,7 @@ psql -U postgres -c "CREATE DATABASE wa_romantic;" 2>/dev/null || grn "  ✔ wa_
 psql -U postgres -c "CREATE DATABASE wa_mark2;" 2>/dev/null || grn "  ✔ wa_mark2 already exists"
 
 # Ensure the wa_mark2 tables that Aisha needs exist
-psql -U postgres -d wa_mark2 -c "
+psql -U postgres -d wa_mark2 <<'EOSQL' 2>/dev/null || true
 CREATE TABLE IF NOT EXISTS workspaces (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id VARCHAR,
@@ -77,22 +77,29 @@ CREATE TABLE IF NOT EXISTS workspaces (
     whatsapp_jid VARCHAR,
     created_at TIMESTAMP DEFAULT NOW()
 );
+EOSQL
 
+psql -U postgres -d wa_mark2 <<'EOSQL' 2>/dev/null || true
 CREATE TABLE IF NOT EXISTS whatsapp_sessions (
     workspace_id UUID PRIMARY KEY REFERENCES workspaces(id),
     status VARCHAR DEFAULT 'UNCONFIGURED',
     qr_code TEXT,
     last_updated TIMESTAMP DEFAULT NOW()
 );
+EOSQL
 
+psql -U postgres -d wa_mark2 <<'EOSQL' 2>/dev/null || true
 INSERT INTO workspaces (id, owner_id, company_name, business_description, email, agent_enabled, is_running, messages_sent_today, daily_message_limit, created_at)
 VALUES ('11111111-1111-1111-1111-111111111111', 'aisha-setup', 'Aisha Agent', 'AI Agent', 'aisha@local.dev', true, true, 0, 100, NOW())
 ON CONFLICT (id) DO NOTHING;
+EOSQL
 
+psql -U postgres -d wa_mark2 <<'EOSQL' 2>/dev/null || true
 INSERT INTO whatsapp_sessions (workspace_id, status, last_updated)
 VALUES ('11111111-1111-1111-1111-111111111111', 'UNCONFIGURED', NOW())
 ON CONFLICT (workspace_id) DO NOTHING;
-" 2>/dev/null
+EOSQL
+
 grn "  ✔ Database tables ready"
 
 # 4) Python venv + deps
