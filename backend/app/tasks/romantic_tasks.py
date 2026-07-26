@@ -300,15 +300,36 @@ def send_proactive_message(contact_id: str, message: str = ""):
 
         if contact.do_not_contact:
             return
+            
+        config = db.query(AgentConfig).first()
+        if not config:
+            return
 
-        if not message:
-            message = "hey! what's up?"
+        # If a specific manual message is provided (that isn't our old hardcoded generic one), use it.
+        # Otherwise, ask the AI to generate a dynamic proactive message.
+        if message and message not in ["hey! 👋", "hey! what's up?"]:
+            final_message = message
+        else:
+            from app.services.agent_service import generate_reply_and_extract_memory
+            # Simulate a system prompt for the proactive initiation
+            class FakeConversation:
+                pass
+            
+            # Create a mock conversation state to force the AI to initiate
+            # We don't want to save the system prompt to the DB, just pass it to the generator
+            final_message, _ = generate_reply_and_extract_memory(
+                db, 
+                contact, 
+                conversation, 
+                config,
+                override_latest_message="[System: You are initiating the conversation. Send a natural, engaging first message in Hinglish to get their attention. Be playful or casual, don't just say 'hi'.]"
+            )
 
         msg = Message(
             conversation_id=conversation.id,
             contact_id=contact.id,
             role=MessageRole.AGENT,
-            content=message,
+            content=final_message,
             status=MessageStatus.SENT,
         )
         db.add(msg)
@@ -317,6 +338,6 @@ def send_proactive_message(contact_id: str, message: str = ""):
         db.commit()
 
         if contact.jid:
-            send_whatsapp_message(conversation.workspace_id, contact.jid, message)
+            send_whatsapp_message(conversation.workspace_id, contact.jid, final_message)
     finally:
         db.close()
