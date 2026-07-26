@@ -1,0 +1,16 @@
+fastapi==0.110.0
+uvicorn==0.27.1
+SQLAlchemy==2.0.28
+psycopg[binary]
+alembic==1.13.1
+pydantic==2.6.4
+pydantic-settings==2.2.1
+celery==5.3.6
+redis==5.0.3
+google-genai>=0.3.0
+python-dotenv==1.0.1
+httpx==0.27.2
+
+PyJWT==2.9.0
+python-jose==3.5.0
+email-validator==2.2.0

@@ -1,0 +1,22 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+backend/*.log
+backend/celerybeat-schedule*
+
+# Go
+gateway/wa-gateway
+gateway/gateway.log
+
+# Node
+frontend/node_modules/
+
+# Env
+.env
+
+# Logs
+logs/
+
+# macOS
+.DS_Store
