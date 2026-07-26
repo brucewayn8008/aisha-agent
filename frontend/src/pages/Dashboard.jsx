@@ -144,6 +144,19 @@ export default function Dashboard() {
     }
   }, [logs]);
 
+  useEffect(() => {
+    let timeoutId;
+    if (agentConfig?.whatsapp_session?.status === 'waiting_for_scan') {
+      timeoutId = setTimeout(() => {
+        console.log('Auto-refreshing QR code (15 mins elapsed)');
+        connectWhatsApp();
+      }, 15 * 60 * 1000);
+    }
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [agentConfig?.whatsapp_session?.status, agentConfig?.whatsapp_session?.qr]);
+
   const toggleAgent = async () => {
     setTogglingAgent(true);
     try {
@@ -345,9 +358,18 @@ export default function Dashboard() {
                 )}
 
                 {whatsappSession.status === 'waiting_for_scan' && whatsappSession.qr && (
-                  <div className="flex flex-col items-center bg-white p-sm rounded-lg">
+                  <div className="flex flex-col items-center bg-white p-sm rounded-lg relative">
                     <QRCodeSVG value={whatsappSession.qr} size={200} />
                     <p className="text-gray-800 text-xs mt-sm font-medium">Scan with WhatsApp</p>
+                    <Button 
+                      variant="outline" 
+                      className="mt-sm w-full py-xs text-xs" 
+                      onClick={connectWhatsApp} 
+                      loading={connectingWa}
+                      disabled={connectingWa}
+                    >
+                      Refresh QR Code
+                    </Button>
                   </div>
                 )}
 

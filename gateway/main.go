@@ -94,6 +94,11 @@ func (sm *SessionManager) startSession(workspaceID string) error {
 			if client.IsConnected() {
 				log.Printf("[%s] Client already running and connected", workspaceID)
 				go updateStatusInDB(workspaceID, "CONNECTED")
+				return nil
+			} else if client.Store.ID == nil {
+				log.Printf("[%s] Client stuck waiting for scan. Recreating to generate new QR...", workspaceID)
+				client.Disconnect()
+				delete(sm.clients, workspaceID)
 			} else {
 				log.Printf("[%s] Client already running but not connected. Connecting...", workspaceID)
 				go func() {
@@ -102,9 +107,9 @@ func (sm *SessionManager) startSession(workspaceID string) error {
 						log.Printf("[%s] Failed to connect: %v", workspaceID, err)
 					}
 				}()
+				return nil
 			}
 		}
-		return nil
 	}
 
 	// Retrieve whatsapp_jid from workspaces table for this workspace
