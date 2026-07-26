@@ -10,6 +10,7 @@ celery_app = Celery(
     backend=RESULT_BACKEND,
     include=["app.tasks.romantic_tasks"],
 )
+celery_app.set_default()
 
 celery_app.conf.update(
     task_default_queue="romantic",
